@@ -12,16 +12,18 @@ import (
 )
 
 type ComplianceCheckHandler struct {
-	service service.ComplianceCheckService
+	service        service.ComplianceCheckService
+	rectifications service.RectificationService
 }
 
-func NewComplianceCheckHandler(s service.ComplianceCheckService) *ComplianceCheckHandler {
-	return &ComplianceCheckHandler{service: s}
+func NewComplianceCheckHandler(s service.ComplianceCheckService, rectifications service.RectificationService) *ComplianceCheckHandler {
+	return &ComplianceCheckHandler{service: s, rectifications: rectifications}
 }
 
 func (h *ComplianceCheckHandler) Register(group *gin.RouterGroup) {
 	resource := group.Group("/checks")
 	resource.GET("", h.list)
+	resource.GET("/rectification-summaries", middleware.RequireMinimumRole(model.RoleViewer), h.rectificationSummaries)
 	resource.GET("/:id", h.get)
 	resource.POST("", middleware.RequireMinimumRole(model.RoleOperator), h.create)
 	resource.PUT("/:id", middleware.RequireMinimumRole(model.RoleOperator), h.update)
@@ -37,6 +39,25 @@ func (h *ComplianceCheckHandler) list(c *gin.Context) {
 		return
 	}
 	util.Page(c, result.Items, result.Page, result.PageSize, result.Total)
+}
+
+// rectificationSummaries returns progress/deadline/latest-note rows for the
+// checks visible on the current list page so the table can render remediation
+// status without one request per row.
+func (h *ComplianceCheckHandler) rectificationSummaries(c *gin.Context) {
+	var input struct {
+		IDs []uint `form:"ids" binding:"required,min=1,max=100"`
+	}
+	if err := c.ShouldBindQuery(&input); err != nil {
+		util.Fail(c, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	summaries, err := h.rectifications.Summaries(c.Request.Context(), input.IDs)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	util.OK(c, summaries)
 }
 
 func (h *ComplianceCheckHandler) get(c *gin.Context) {

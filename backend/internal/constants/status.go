@@ -18,13 +18,15 @@ var AllManifestState = []string{"draft", "submitted", "in_transit", "received", 
 type CheckState string
 
 const (
-	CheckStatePending   CheckState = "pending"
-	CheckStatePass      CheckState = "pass"
-	CheckStateFail      CheckState = "fail"
-	CheckStateEscalated CheckState = "escalated"
+	CheckStatePending        CheckState = "pending"
+	CheckStatePass           CheckState = "pass"
+	CheckStateFail           CheckState = "fail"
+	CheckStateRectifying     CheckState = "rectifying"
+	CheckStateRecheckPending CheckState = "recheck_pending"
+	CheckStateEscalated      CheckState = "escalated"
 )
 
-var AllCheckState = []string{"pending", "pass", "fail", "escalated"}
+var AllCheckState = []string{"pending", "pass", "fail", "rectifying", "recheck_pending", "escalated"}
 
 var WasteGeneratorTransitions = map[string]map[string]bool{
 	"active":     {"restricted": true, "suspended": true, "expired": true},
@@ -49,10 +51,12 @@ var TransferManifestTransitions = map[string]map[string]bool{
 }
 
 var ComplianceCheckTransitions = map[string]map[string]bool{
-	"pending":   {"pass": true, "fail": true},
-	"pass":      {},
-	"fail":      {"escalated": true},
-	"escalated": {},
+	"pending":         {"pass": true, "fail": true},
+	"pass":            {},
+	"fail":            {"escalated": true, "rectifying": true},
+	"rectifying":      {"recheck_pending": true, "escalated": true},
+	"recheck_pending": {"pass": true, "rectifying": true, "escalated": true},
+	"escalated":       {},
 }
 
 func CanTransition(graph map[string]map[string]bool, from, to string) bool {

@@ -37,10 +37,16 @@ docker compose down -v --remove-orphans
 | 承运资质 | `CarrierProfile` | `/api/carriers` | 许可证、有效期、有效车辆与证据 |
 | 转运清单 | `TransferManifest` | `/api/manifests` | 产废单位、承运方、废物代码、重量与去向 |
 | 合规核验 | `ComplianceCheck` | `/api/checks` | 关联联单、核验清单、证据与决定依据 |
+| 整改复检 | `Rectification` 等 | `/api/checks/:id/rectification` | 不合格后逐条缺陷、逐轮材料与复检闭环 |
+
+- 核验判定 `fail` 后由复核员在线发起整改：填写整改责任人、整改期限，并逐条写明缺陷条款与描述。
+- 办理人按未关闭缺陷逐条提交整改说明与凭证后进入 `recheck_pending`（待复检）；复核员逐条给出认可/退回，**全部认可**才把核验转为 `pass`；任一条不认可须填写原因，整轮退回 `rectifying` 继续整改。
+- 每轮提交与每条复核决定都作为只追加记录单独保留（`rectification_rounds` / `rectification_responses`），旧版本材料不会被覆盖；列表展示整改进度（已关闭条数/总条数）、剩余期限与最新说明。
+- 整改发起、提交、复检全程使用核验单乐观锁：重复提交、旧版本号或并发二次评审返回 `409 remediation_conflict/version_conflict`，不覆盖任何既有记录。
 
 - JWT 登录和 viewer/operator/reviewer/admin 四级 RBAC，后端 middleware、前端守卫、导航与按钮同步生效。
 - 联单提交和发运前会重新核验产废许可为 `active`、承运资质为 `verified`，且双方证照仍在有效期内。
-- 联单只允许 `draft → submitted → in_transit → received`，`submitted/in_transit` 可转 `rejected`；核验决定不可回退，失败仅可升级复核。
+- 联单只允许 `draft → submitted → in_transit → received`，`submitted/in_transit` 可转 `rejected`；核验决定不可回退，失败可发起整改复检或升级复核。整改复检流为 `fail → rectifying ⇄ recheck_pending → pass`。
 - 已提交联单和已决定核验不可编辑或删除；写入使用乐观锁。
 - 建档、许可/证据更新、状态变化和删除与审计日志在同一数据库事务中提交，审计保留 actor 与 request ID。
 - 请求 ID、结构化日志、全局错误映射和 Redis 分布式限流。
@@ -55,6 +61,8 @@ docker compose down -v --remove-orphans
 | 新建和编辑待处理数据 |  | ✓ | ✓ | ✓ |
 | 推进转运联单 |  | ✓ | ✓ | ✓ |
 | 复核许可与核验决定 |  |  | ✓ | ✓ |
+| 发起整改与逐条复检 |  |  | ✓ | ✓ |
+| 提交整改说明与凭证 |  | ✓ | ✓ | ✓ |
 | 查看审计 |  |  | ✓ | ✓ |
 | 受控软删除 |  |  |  | ✓ |
 
@@ -133,7 +141,7 @@ cd .. && docker compose config --quiet
 | 枚举 | 值 | 前后端出现位置 |
 |---|---|---|
 | `ManifestState` | `draft, submitted, in_transit, received, rejected` | `backend/internal/constants/status.go`、`frontend/src/types/status.ts` |
-| `CheckState` | `pending, pass, fail, escalated` | `backend/internal/constants/status.go`、`frontend/src/types/status.ts` |
+| `CheckState` | `pending, pass, fail, rectifying, recheck_pending, escalated` | `backend/internal/constants/status.go`、`frontend/src/types/status.ts` |
 
 每个实体自己的完整迁移图同样位于 `backend/internal/constants/status.go`；页面使用的状态列表位于 `frontend/src/types/status.ts`。修改状态时必须同步两处并更新对应服务测试。
 

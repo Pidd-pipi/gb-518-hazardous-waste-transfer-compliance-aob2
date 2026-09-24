@@ -81,6 +81,10 @@ func migrate(db *gorm.DB) error {
 		&model.CarrierProfile{},
 		&model.TransferManifest{},
 		&model.ComplianceCheck{},
+		&model.Rectification{},
+		&model.RectificationItem{},
+		&model.RectificationRound{},
+		&model.RectificationResponse{},
 	)
 }
 

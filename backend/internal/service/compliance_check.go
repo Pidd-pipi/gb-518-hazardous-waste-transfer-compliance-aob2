@@ -119,6 +119,11 @@ func (s *complianceCheckService) Transition(ctx context.Context, id uint, input 
 	if strings.TrimSpace(current.Evidence) == "" || strings.TrimSpace(input.Reason) == "" {
 		return model.ComplianceCheck{}, fmt.Errorf("%w: decision evidence and reason are required", ErrInvalidInput)
 	}
+	// A failure that moves directly into remediation must go through the
+	// dedicated endpoint that captures the assignee, deadline and each defect.
+	if target == string(constants.CheckStateRectifying) || target == string(constants.CheckStateRecheckPending) {
+		return model.ComplianceCheck{}, fmt.Errorf("%w: remediation transitions are driven by the rectification workflow", ErrInvalidTransition)
+	}
 	before := current.Status
 	current.Status = target
 	current.Version = input.ExpectedVersion + 1
