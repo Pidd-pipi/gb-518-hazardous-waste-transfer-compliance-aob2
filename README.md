@@ -36,12 +36,13 @@ docker compose down -v --remove-orphans
 | 产废单位 | `WasteGenerator` | `/api/generators` | 许可编号、有效期、废物类别与证据 |
 | 承运资质 | `CarrierProfile` | `/api/carriers` | 许可证、有效期、有效车辆与证据 |
 | 转运清单 | `TransferManifest` | `/api/manifests` | 产废单位、承运方、废物代码、重量与去向 |
-| 合规核验 | `ComplianceCheck` | `/api/checks` | 关联联单、核验清单、证据与决定依据 |
+| 合规核验 | `ComplianceCheck`、`RemediationRound`、`RemediationSubmission` | `/api/checks` | 关联联单、逐项缺陷、整改轮次、复检决定与不可覆盖证据 |
 
 - JWT 登录和 viewer/operator/reviewer/admin 四级 RBAC，后端 middleware、前端守卫、导航与按钮同步生效。
 - 联单提交和发运前会重新核验产废许可为 `active`、承运资质为 `verified`，且双方证照仍在有效期内。
-- 联单只允许 `draft → submitted → in_transit → received`，`submitted/in_transit` 可转 `rejected`；核验决定不可回退，失败仅可升级复核。
-- 已提交联单和已决定核验不可编辑或删除；写入使用乐观锁。
+- 联单只允许 `draft → submitted → in_transit → received`，`submitted/in_transit` 可转 `rejected`。
+- 核验 `pending → fail → pending_reinspection → pass`；判不合格时必须填写责任人、期限并逐条登记缺陷，办理人逐缺陷提交说明与凭证后进入待复检。复核员必须逐项认可才能通过；退回时记录原因，旧轮材料原样保留并仅为未认可缺陷开启下一轮。重复提交、重复事项或旧版本均返回冲突，不覆盖历史记录。
+- 已提交联单和未通过前的核验不可编辑或删除；写入使用核验和整改轮双重乐观锁。
 - 建档、许可/证据更新、状态变化和删除与审计日志在同一数据库事务中提交，审计保留 actor 与 request ID。
 - 请求 ID、结构化日志、全局错误映射和 Redis 分布式限流。
 - 提供脱敏运行配置、当前会话、审计汇总和单实体审计历史接口。
@@ -54,7 +55,7 @@ docker compose down -v --remove-orphans
 | 查看四类业务数据 | ✓ | ✓ | ✓ | ✓ |
 | 新建和编辑待处理数据 |  | ✓ | ✓ | ✓ |
 | 推进转运联单 |  | ✓ | ✓ | ✓ |
-| 复核许可与核验决定 |  |  | ✓ | ✓ |
+| 复核许可、核验决定与逐项复检 |  |  | ✓ | ✓ |
 | 查看审计 |  |  | ✓ | ✓ |
 | 受控软删除 |  |  |  | ✓ |
 
@@ -133,7 +134,7 @@ cd .. && docker compose config --quiet
 | 枚举 | 值 | 前后端出现位置 |
 |---|---|---|
 | `ManifestState` | `draft, submitted, in_transit, received, rejected` | `backend/internal/constants/status.go`、`frontend/src/types/status.ts` |
-| `CheckState` | `pending, pass, fail, escalated` | `backend/internal/constants/status.go`、`frontend/src/types/status.ts` |
+| `CheckState` | `pending, fail, pending_reinspection, pass, escalated` | `backend/internal/constants/status.go`、`frontend/src/types/status.ts` |
 
 每个实体自己的完整迁移图同样位于 `backend/internal/constants/status.go`；页面使用的状态列表位于 `frontend/src/types/status.ts`。修改状态时必须同步两处并更新对应服务测试。
 

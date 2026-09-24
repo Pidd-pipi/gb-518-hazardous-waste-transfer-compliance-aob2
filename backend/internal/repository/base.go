@@ -10,7 +10,11 @@ import (
 	"gorm.io/gorm"
 )
 
-var ErrVersionConflict = errors.New("record was changed by another request")
+var (
+	ErrVersionConflict = errors.New("record was changed by another request")
+	ErrInvalidState    = errors.New("persistence operation is invalid for the current record state")
+	ErrDuplicateAction = errors.New("the same action was submitted more than once")
+)
 
 type Page[T any] struct {
 	Items    []T   `json:"items"`

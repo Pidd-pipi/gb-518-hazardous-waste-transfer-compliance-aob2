@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/blueship581/hazardous-waste-transfer-compliance/backend/internal/dto"
 	"github.com/blueship581/hazardous-waste-transfer-compliance/backend/internal/middleware"
@@ -26,6 +27,9 @@ func (h *ComplianceCheckHandler) Register(group *gin.RouterGroup) {
 	resource.POST("", middleware.RequireMinimumRole(model.RoleOperator), h.create)
 	resource.PUT("/:id", middleware.RequireMinimumRole(model.RoleOperator), h.update)
 	resource.POST("/:id/transition", middleware.RequireMinimumRole(model.RoleReviewer), h.transition)
+	resource.GET("/:id/remediation", h.remediation)
+	resource.POST("/:id/remediation/rounds/:roundId/submit", middleware.RequireMinimumRole(model.RoleOperator), h.submitRemediation)
+	resource.POST("/:id/remediation/rounds/:roundId/review", middleware.RequireMinimumRole(model.RoleReviewer), h.reviewRemediation)
 	resource.DELETE("/:id", middleware.RequireRoles(model.RoleAdmin), h.remove)
 }
 
@@ -89,12 +93,61 @@ func (h *ComplianceCheckHandler) transition(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var input dto.TransitionRequest
+	var input dto.DecideComplianceCheck
 	if err := c.ShouldBindJSON(&input); err != nil {
 		util.Fail(c, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 	item, err := h.service.Transition(c.Request.Context(), id, input, actorFromContext(c), requestIDFromContext(c))
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	util.OK(c, item)
+}
+
+func (h *ComplianceCheckHandler) remediation(c *gin.Context) {
+	id, ok := parseID(c)
+	if !ok {
+		return
+	}
+	detail, err := h.service.GetRemediation(c.Request.Context(), id)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	util.OK(c, detail)
+}
+
+func (h *ComplianceCheckHandler) submitRemediation(c *gin.Context) {
+	id, roundID, ok := parseCheckAndRoundIDs(c)
+	if !ok {
+		return
+	}
+	var input dto.SubmitRemediationRequest
+	if err := c.ShouldBindJSON(&input); err != nil {
+		util.Fail(c, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	item, err := h.service.SubmitRemediation(c.Request.Context(), id, roundID, input, actorFromContext(c), requestIDFromContext(c))
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	util.OK(c, item)
+}
+
+func (h *ComplianceCheckHandler) reviewRemediation(c *gin.Context) {
+	id, roundID, ok := parseCheckAndRoundIDs(c)
+	if !ok {
+		return
+	}
+	var input dto.ReviewRemediationRequest
+	if err := c.ShouldBindJSON(&input); err != nil {
+		util.Fail(c, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	item, err := h.service.ReviewRemediation(c.Request.Context(), id, roundID, input, actorFromContext(c), requestIDFromContext(c))
 	if err != nil {
 		handleError(c, err)
 		return
@@ -116,4 +169,17 @@ func (h *ComplianceCheckHandler) remove(c *gin.Context) {
 		return
 	}
 	util.NoContent(c)
+}
+
+func parseCheckAndRoundIDs(c *gin.Context) (uint, uint, bool) {
+	id, ok := parseID(c)
+	if !ok {
+		return 0, 0, false
+	}
+	roundID, err := strconv.ParseUint(c.Param("roundId"), 10, 64)
+	if err != nil || roundID == 0 {
+		util.Fail(c, http.StatusBadRequest, "invalid_request", "round id is required")
+		return 0, 0, false
+	}
+	return id, uint(roundID), true
 }

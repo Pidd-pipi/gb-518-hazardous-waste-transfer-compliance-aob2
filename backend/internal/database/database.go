@@ -81,6 +81,10 @@ func migrate(db *gorm.DB) error {
 		&model.CarrierProfile{},
 		&model.TransferManifest{},
 		&model.ComplianceCheck{},
+		&model.RemediationDefect{},
+		&model.RemediationRound{},
+		&model.RemediationRoundItem{},
+		&model.RemediationSubmission{},
 	)
 }
 
@@ -118,6 +122,10 @@ func Seed(ctx context.Context, db *gorm.DB) error {
 	}
 
 	if err := seedComplianceCheck(ctx, db); err != nil {
+		return err
+	}
+
+	if err := seedComplianceRemediation(ctx, db); err != nil {
 		return err
 	}
 
@@ -207,6 +215,38 @@ func seedTransferManifest(ctx context.Context, db *gorm.DB) error {
 			Facility: "危险废物转运合规核验区域3", Owner: "安全主管组",
 			Category: "复核", RiskLevel: "high", MetricValue: 37.5, MetricUnit: "score",
 			EffectiveAt: now.Add(6 * time.Hour), Evidence: "已完成基础证据核对", RelatedCode: "REL-518-03"},
+	}
+	return db.WithContext(ctx).Create(&items).Error
+}
+
+func seedComplianceRemediation(ctx context.Context, db *gorm.DB) error {
+	var count int64
+	if err := db.WithContext(ctx).Model(&model.RemediationRound{}).Count(&count).Error; err != nil || count > 0 {
+		return err
+	}
+	var check model.ComplianceCheck
+	if err := db.WithContext(ctx).Where("code = ?", "CC-003").First(&check).Error; err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	dueAt := now.AddDate(0, 0, 5)
+	defects := []model.RemediationDefect{
+		{CheckID: check.ID, DefectNo: 1, Description: "联单重量凭证与现场称重记录存在差异", Category: "称重", Evidence: "minio://seed/check-cc-003-weight.pdf", CreatedAt: now, UpdatedAt: now},
+		{CheckID: check.ID, DefectNo: 2, Description: "处置去向接收凭证缺少接收单位盖章", Category: "去向", Evidence: "minio://seed/check-cc-003-destination.pdf", CreatedAt: now, UpdatedAt: now},
+	}
+	if err := db.WithContext(ctx).Create(&defects).Error; err != nil {
+		return err
+	}
+	round := model.RemediationRound{
+		CheckID: check.ID, RoundNo: 1, Assignee: "安全主管组", DueAt: dueAt,
+		Status: model.RemediationRoundStatusRectifying, Version: 1, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := db.WithContext(ctx).Create(&round).Error; err != nil {
+		return err
+	}
+	items := []model.RemediationRoundItem{
+		{RoundID: round.ID, DefectID: defects[0].ID, ItemNo: 1, Description: defects[0].Description, Category: defects[0].Category, OriginalEvidence: defects[0].Evidence, Status: model.RemediationItemStatusPending, Version: 1, CreatedAt: now, UpdatedAt: now},
+		{RoundID: round.ID, DefectID: defects[1].ID, ItemNo: 2, Description: defects[1].Description, Category: defects[1].Category, OriginalEvidence: defects[1].Evidence, Status: model.RemediationItemStatusPending, Version: 1, CreatedAt: now, UpdatedAt: now},
 	}
 	return db.WithContext(ctx).Create(&items).Error
 }

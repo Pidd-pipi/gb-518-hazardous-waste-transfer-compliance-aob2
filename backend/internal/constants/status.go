@@ -18,13 +18,14 @@ var AllManifestState = []string{"draft", "submitted", "in_transit", "received", 
 type CheckState string
 
 const (
-	CheckStatePending   CheckState = "pending"
-	CheckStatePass      CheckState = "pass"
-	CheckStateFail      CheckState = "fail"
-	CheckStateEscalated CheckState = "escalated"
+	CheckStatePending             CheckState = "pending"
+	CheckStatePass                CheckState = "pass"
+	CheckStateFail                CheckState = "fail"
+	CheckStatePendingReinspection CheckState = "pending_reinspection"
+	CheckStateEscalated           CheckState = "escalated"
 )
 
-var AllCheckState = []string{"pending", "pass", "fail", "escalated"}
+var AllCheckState = []string{"pending", "pass", "fail", "pending_reinspection", "escalated"}
 
 var WasteGeneratorTransitions = map[string]map[string]bool{
 	"active":     {"restricted": true, "suspended": true, "expired": true},
@@ -49,10 +50,11 @@ var TransferManifestTransitions = map[string]map[string]bool{
 }
 
 var ComplianceCheckTransitions = map[string]map[string]bool{
-	"pending":   {"pass": true, "fail": true},
-	"pass":      {},
-	"fail":      {"escalated": true},
-	"escalated": {},
+	"pending":              {"pass": true, "fail": true},
+	"pass":                 {},
+	"fail":                 {"escalated": true},
+	"pending_reinspection": {},
+	"escalated":            {},
 }
 
 func CanTransition(graph map[string]map[string]bool, from, to string) bool {

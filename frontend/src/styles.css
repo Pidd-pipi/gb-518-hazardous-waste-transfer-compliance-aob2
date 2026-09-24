@@ -48,6 +48,44 @@ td small { display: block; color: #7d8d97; margin-top: 4px; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: rgba(10,25,35,.52); }
 .modal { width: min(440px, calc(100vw - 32px)); background: white; padding: 22px; box-shadow: 0 18px 60px rgba(0,0,0,.25); }
 .modal h2 { margin-top: 0; }.modal footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+.modal label, .form-grid label { display: grid; gap: 7px; color: #405866; font-size: 13px; font-weight: 700; margin: 12px 0; }
+.modal input, .modal textarea, .form-grid input, .form-grid textarea { width: 100%; border: 1px solid #b7c6ce; padding: 9px 10px; color: #172332; }
+.modal textarea, .form-grid textarea { resize: vertical; }
+.modal--wide { width: min(760px, calc(100vw - 32px)); max-height: 88vh; overflow-y: auto; }
+.modal--large { width: min(1080px, calc(100vw - 32px)); max-height: 90vh; overflow-y: auto; }
+.form-grid { display: grid; gap: 0 14px; }.form-grid--two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.draft-list { display: grid; gap: 10px; margin-top: 16px; }
+.draft-list > header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.draft-card { border: 1px solid #d7e1e6; background: #fbfdfd; padding: 12px; }
+.draft-card__title, .item-card__heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.conflict-hint { color: #8a5a08; background: #fff7df; border-left: 4px solid #d69a28; padding: 9px 10px; font-size: 12px; }
+.detail-header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 16px; }
+.detail-header h2 { margin: 3px 0 4px; font-size: 22px; }
+.round-panel { border: 1px solid #d7e1e6; margin-bottom: 14px; background: #fff; }
+.round-panel > header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 13px 14px; background: #f2f6f7; }
+.round-panel > header small, .return-reason { display: block; color: #647783; margin-top: 4px; }
+.round-state, .item-state { display: inline-flex; border-radius: 3px; padding: 3px 7px; font-size: 11px; font-weight: 750; background: #e9eff2; }
+.round-state--rectifying, .item-state--pending { color: #8a5a08; background: #fff1ce; }
+.round-state--pending_reinspection, .item-state--submitted { color: #185c84; background: #e1f0fa; }
+.round-state--returned, .item-state--rejected { color: #9d2c37; background: #fde4e6; }
+.round-state--passed, .item-state--approved { color: #176c55; background: #dff3ec; }
+.return-reason { padding: 10px 14px; margin: 0; color: #922b34; background: #fde8ea; }
+.item-list { display: grid; gap: 10px; padding: 14px; }
+.item-card { border: 1px solid #e1e9ec; padding: 12px; display: grid; gap: 8px; }
+.submission-list { display: grid; gap: 8px; }
+.submission-record { background: #f7fafb; border-left: 3px solid #2a9d78; padding: 9px 10px; display: grid; gap: 4px; }
+.submission-record p { margin: 0; color: #314855; }
+.submission-record a { color: #167c66; overflow-wrap: anywhere; font-size: 12px; }
+.review-comment { color: #922b34; font-weight: 650; }
+.review-draft .inline-check { display: flex; align-items: center; gap: 8px; grid-template-columns: none; }
+.review-draft .inline-check input { width: auto; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.progress-line { height: 5px; background: #e4ecef; margin-top: 6px; min-width: 120px; }
+.progress-line i { display: block; height: 100%; background: #2a9d78; }
+.note-cell { min-width: 180px; }
+.overdue { color: #9d2c37 !important; font-weight: 750; }
+.danger-action { color: #b13b46; }
+.compliance-workspace .table-shell table { min-width: 1180px; }
 .audit-list { display: grid; gap: 9px; }.audit-list article { display: grid; grid-template-columns: 170px 180px 150px 1fr 220px; gap: 12px; align-items: center; background: white; border: 1px solid #dbe4e8; padding: 13px; }.audit-list time, .audit-list small { color: #768893; font-size: 12px; }.audit-list code { color: #285c77; }
 .license-panel { margin-bottom: 18px; border: 1px solid #dbe4e8; background: white; }
 .license-panel > header { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid #dbe4e8; color: #405866; }

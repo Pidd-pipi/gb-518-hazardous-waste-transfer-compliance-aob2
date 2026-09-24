@@ -39,3 +39,44 @@ type UpdateComplianceCheck struct {
 	Evidence        string    `json:"evidence" binding:"max=2000"`
 	RelatedCode     string    `json:"relatedCode" binding:"max=64"`
 }
+
+type DefectInput struct {
+	Description string `json:"description" binding:"required,min=5,max=1000"`
+	Category    string `json:"category" binding:"max=80"`
+	Evidence    string `json:"evidence" binding:"max=1000"`
+}
+
+type DecideComplianceCheck struct {
+	Status          string        `json:"status" binding:"required,oneof=pass fail escalated"`
+	ExpectedVersion uint          `json:"expectedVersion" binding:"required"`
+	Reason          string        `json:"reason" binding:"required,min=3,max=1000"`
+	Assignee        string        `json:"assignee" binding:"max=120"`
+	DueAt           *time.Time    `json:"dueAt"`
+	Defects         []DefectInput `json:"defects" binding:"dive"`
+}
+
+type RemediationItemInput struct {
+	RoundItemID  uint     `json:"roundItemId" binding:"required"`
+	Note         string   `json:"note" binding:"required,min=3,max=1000"`
+	EvidenceURLs []string `json:"evidenceUrls" binding:"required,min=1,dive,required,min=3,max=500"`
+}
+
+type SubmitRemediationRequest struct {
+	ExpectedVersion uint                   `json:"expectedVersion" binding:"required"`
+	RoundVersion    uint                   `json:"roundVersion" binding:"required"`
+	Items           []RemediationItemInput `json:"items" binding:"required,min=1,dive"`
+}
+
+type ReviewRemediationItemRequest struct {
+	RoundItemID uint   `json:"roundItemId" binding:"required"`
+	Approved    bool   `json:"approved"`
+	Comment     string `json:"comment" binding:"max=1000"`
+}
+
+type ReviewRemediationRequest struct {
+	Action          string                         `json:"action" binding:"required,oneof=approve return"`
+	ExpectedVersion uint                           `json:"expectedVersion" binding:"required"`
+	RoundVersion    uint                           `json:"roundVersion" binding:"required"`
+	Reason          string                         `json:"reason" binding:"required,min=3,max=1000"`
+	Items           []ReviewRemediationItemRequest `json:"items" binding:"required,min=1,dive"`
+}

@@ -140,6 +140,177 @@ func TestRBACLinkedComplianceWorkflowAndAuditing(t *testing.T) {
 	}
 }
 
+func TestRemediationReinspectionWorkflowAndConflicts(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := testConfig(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	db, _, err := database.Open(context.Background(), cfg, logger)
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	engine := router.New(cfg, db, nil, logger)
+	operator := login(t, engine, "operator")
+	reviewer := login(t, engine, "reviewer")
+
+	response, body := request(t, engine, http.MethodPost, "/api/manifests", operator, "remediation-manifest-create", manifestPayload("TM-REM-001", "CP-002"))
+	assertStatus(t, response, http.StatusCreated)
+	manifest := decodeRecord(t, body)
+	response, body = request(t, engine, http.MethodPost, fmt.Sprintf("/api/manifests/%d/transition", manifest.ID), operator, "remediation-manifest-submit", map[string]any{
+		"status": "submitted", "expectedVersion": manifest.Version, "reason": "submitted for remediation workflow",
+	})
+	assertStatus(t, response, http.StatusOK)
+	manifest = decodeRecord(t, body)
+
+	response, body = request(t, engine, http.MethodPost, "/api/checks", operator, "remediation-check-create", checkPayload("CC-REM-001", manifest.Code))
+	assertStatus(t, response, http.StatusCreated)
+	check := decodeRecord(t, body)
+
+	response, _ = request(t, engine, http.MethodPost, fmt.Sprintf("/api/checks/%d/transition", check.ID), reviewer, "remediation-fail-without-defects", map[string]any{
+		"status": "fail", "expectedVersion": check.Version, "reason": "defects must be itemized",
+		"assignee": "张三", "dueAt": time.Now().Add(time.Hour).Format(time.RFC3339),
+	})
+	assertStatus(t, response, http.StatusUnprocessableEntity)
+
+	failPayload := map[string]any{
+		"status": "fail", "expectedVersion": check.Version, "reason": "weighing evidence and destination proof are insufficient",
+		"assignee": "张三", "dueAt": time.Now().Add(48 * time.Hour).Format(time.RFC3339),
+		"defects": []map[string]any{
+			{"description": "联单重量凭证与现场称重记录不一致", "category": "称重", "evidence": "minio://evidence/weight.pdf"},
+			{"description": "处置去向接收凭证缺少单位盖章", "category": "去向", "evidence": "minio://evidence/destination.pdf"},
+		},
+	}
+	response, body = request(t, engine, http.MethodPost, fmt.Sprintf("/api/checks/%d/transition", check.ID), reviewer, "remediation-fail", failPayload)
+	assertStatus(t, response, http.StatusOK)
+	check = decodeRecord(t, body)
+	if check.Status != "fail" || check.Version != 2 {
+		t.Fatalf("failed check should open rectifying state: %+v", check)
+	}
+
+	detail := getRemediation(t, engine, reviewer, check.ID)
+	if len(detail.Defects) != 2 || len(detail.Rounds) != 1 {
+		t.Fatalf("expected two immutable defects and one round, got %+v", detail)
+	}
+	round1 := detail.Rounds[0]
+	if round1.Status != "rectifying" || len(round1.Items) != 2 {
+		t.Fatalf("unexpected first remediation round: %+v", round1)
+	}
+	submitPayload := remediationSubmitPayload(check.Version, round1.Version, round1.Items, "round 1 correction")
+	response, _ = request(t, engine, http.MethodPost, fmt.Sprintf("/api/checks/%d/remediation/rounds/%d/submit", check.ID, round1.ID), operator, "remediation-submit-duplicate-item", submitPayloadWithDuplicate(round1.Items[0].ID))
+	assertStatus(t, response, http.StatusConflict)
+
+	response, body = request(t, engine, http.MethodPost, fmt.Sprintf("/api/checks/%d/remediation/rounds/%d/submit", check.ID, round1.ID), operator, "remediation-submit", submitPayload)
+	assertStatus(t, response, http.StatusOK)
+	check = decodeRecord(t, body)
+	if check.Status != "pending_reinspection" || check.Version != 3 {
+		t.Fatalf("submitted remediation should await reinspection: %+v", check)
+	}
+	response, _ = request(t, engine, http.MethodPost, fmt.Sprintf("/api/checks/%d/remediation/rounds/%d/submit", check.ID, round1.ID), operator, "remediation-submit-repeat", submitPayload)
+	assertStatus(t, response, http.StatusConflict)
+	response, _ = request(t, engine, http.MethodPost, fmt.Sprintf("/api/checks/%d/transition", check.ID), reviewer, "remediation-generic-pass-blocked", map[string]any{
+		"status": "pass", "expectedVersion": check.Version, "reason": "per-item review cannot be bypassed",
+	})
+	assertStatus(t, response, http.StatusUnprocessableEntity)
+
+	response, body = request(t, engine, http.MethodPost, fmt.Sprintf("/api/checks/%d/remediation/rounds/%d/review", check.ID, round1.ID), reviewer, "remediation-return", map[string]any{
+		"action": "return", "expectedVersion": check.Version, "roundVersion": round1.Version + 1,
+		"reason": "称重差异仍需提供第三方复核单",
+		"items": []map[string]any{
+			{"roundItemId": round1.Items[0].ID, "approved": false, "comment": "缺少第三方称重复核单"},
+			{"roundItemId": round1.Items[1].ID, "approved": true, "comment": "盖章凭证已认可"},
+		},
+	})
+	assertStatus(t, response, http.StatusOK)
+	check = decodeRecord(t, body)
+	if check.Status != "fail" || check.Version != 4 {
+		t.Fatalf("returned reinspection should continue remediation: %+v", check)
+	}
+	detail = getRemediation(t, engine, reviewer, check.ID)
+	if len(detail.Rounds) != 2 || len(detail.Rounds[1].Items) != 1 || len(detail.Rounds[0].Submissions) != 2 {
+		t.Fatalf("return must preserve round one materials and open only rejected defects: %+v", detail)
+	}
+	round2 := detail.Rounds[1]
+	response, body = request(t, engine, http.MethodPost, fmt.Sprintf("/api/checks/%d/remediation/rounds/%d/submit", check.ID, round2.ID), operator, "remediation-resubmit", remediationSubmitPayload(check.Version, round2.Version, round2.Items, "round 2 third-party weighing report"))
+	assertStatus(t, response, http.StatusOK)
+	check = decodeRecord(t, body)
+	if check.Status != "pending_reinspection" || check.Version != 5 {
+		t.Fatalf("round two should await reinspection: %+v", check)
+	}
+	response, body = request(t, engine, http.MethodPost, fmt.Sprintf("/api/checks/%d/remediation/rounds/%d/review", check.ID, round2.ID), reviewer, "remediation-approve", map[string]any{
+		"action": "approve", "expectedVersion": check.Version, "roundVersion": round2.Version + 1,
+		"reason": "所有缺陷补充材料均已核实通过",
+		"items":  []map[string]any{{"roundItemId": round2.Items[0].ID, "approved": true, "comment": "第三方复核单有效"}},
+	})
+	assertStatus(t, response, http.StatusOK)
+	check = decodeRecord(t, body)
+	if check.Status != "pass" || check.Version != 6 {
+		t.Fatalf("all approved items should make the check pass: %+v", check)
+	}
+	detail = getRemediation(t, engine, reviewer, check.ID)
+	if len(detail.Rounds) != 2 || len(detail.Rounds[1].Submissions) != 1 || detail.Rounds[1].Status != "passed" {
+		t.Fatalf("every round must retain its own materials: %+v", detail)
+	}
+}
+
+type remediationRoundItemShape struct {
+	ID       uint   `json:"id"`
+	DefectID uint   `json:"defectId"`
+	ItemNo   int    `json:"itemNo"`
+	Status   string `json:"status"`
+	Version  uint   `json:"version"`
+}
+
+type remediationTestDetail struct {
+	Defects []struct {
+		ID uint `json:"id"`
+	} `json:"defects"`
+	Rounds []struct {
+		ID          uint                        `json:"id"`
+		RoundNo     int                         `json:"roundNo"`
+		Status      string                      `json:"status"`
+		Version     uint                        `json:"version"`
+		Items       []remediationRoundItemShape `json:"items"`
+		Submissions []struct {
+			ID          uint `json:"id"`
+			RoundItemID uint `json:"roundItemId"`
+		} `json:"submissions"`
+	} `json:"rounds"`
+}
+
+func getRemediation(t *testing.T, engine http.Handler, token string, checkID uint) remediationTestDetail {
+	t.Helper()
+	response, body := request(t, engine, http.MethodGet, fmt.Sprintf("/api/checks/%d/remediation", checkID), token, "remediation-detail", nil)
+	assertStatus(t, response, http.StatusOK)
+	var envelope struct {
+		Data remediationTestDetail `json:"data"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		t.Fatalf("decode remediation detail: %v body=%s", err, string(body))
+	}
+	return envelope.Data
+}
+
+func remediationSubmitPayload(checkVersion, roundVersion uint, items []remediationRoundItemShape, prefix string) map[string]any {
+	payloadItems := make([]map[string]any, 0, len(items))
+	for index, item := range items {
+		payloadItems = append(payloadItems, map[string]any{
+			"roundItemId":  item.ID,
+			"note":         fmt.Sprintf("%s: corrected defect %d", prefix, index+1),
+			"evidenceUrls": []string{fmt.Sprintf("minio://evidence/remediation/%d-%d.pdf", item.ID, index+1)},
+		})
+	}
+	return map[string]any{"expectedVersion": checkVersion, "roundVersion": roundVersion, "items": payloadItems}
+}
+
+func submitPayloadWithDuplicate(itemID uint) map[string]any {
+	return map[string]any{
+		"expectedVersion": 1, "roundVersion": 1,
+		"items": []map[string]any{
+			{"roundItemId": itemID, "note": "first duplicate submission", "evidenceUrls": []string{"minio://evidence/a.pdf"}},
+			{"roundItemId": itemID, "note": "second duplicate submission", "evidenceUrls": []string{"minio://evidence/b.pdf"}},
+		},
+	}
+}
+
 func testConfig(t *testing.T) config.Config {
 	t.Helper()
 	return config.Config{
